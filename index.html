@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML Print Studio</title>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline' https://esm.sh https://cdn.jsdelivr.net; style-src 'unsafe-inline'; img-src * data:; connect-src 'self' https:; font-src 'self' data:; form-action 'none'; base-uri 'none'">
+  <script type="importmap">
+    {
+      "imports": {
+        "codemirror": "https://esm.sh/codemirror@6.0.2?deps=@codemirror/state@6.6.0,@codemirror/view@6.43.1,@codemirror/language@6.12.3,@codemirror/lint@6.9.7,@codemirror/commands@6.10.3,@codemirror/search@6.7.1,@codemirror/autocomplete@6.20.3",
+        "@codemirror/lang-html": "https://esm.sh/@codemirror/lang-html@6.4.11?deps=@codemirror/state@6.6.0,@codemirror/view@6.43.1,@codemirror/language@6.12.3,@codemirror/lint@6.9.7,@codemirror/autocomplete@6.20.3,@codemirror/lang-css@6.3.1,@codemirror/lang-javascript@6.2.5",
+        "@codemirror/language": "https://esm.sh/@codemirror/language@6.12.3?deps=@codemirror/state@6.6.0,@codemirror/view@6.43.1",
+        "@codemirror/lint": "https://esm.sh/@codemirror/lint@6.9.7?deps=@codemirror/state@6.6.0,@codemirror/view@6.43.1",
+        "@codemirror/view": "https://esm.sh/@codemirror/view@6.43.1?deps=@codemirror/state@6.6.0",
+        "@codemirror/state": "https://esm.sh/@codemirror/state@6.6.0"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.4.11/dist/purify.min.js" integrity="sha384-o44XUELLEnv/iSlA1NWxBweqbD4TSR0qgq2VzVsxtkHS989JJjGKSE9vkfo5MN4K" crossorigin="anonymous"></script>
+  <style>
+    /* --- CSS Reset --- */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* --- Custom Properties --- */
+    :root {
+      --bg-base: #1e1e2e;
+      --bg-surface: #313244;
+      --bg-mantle: #181825;
+      --bg-overlay: #24243a;
+      --text: #cdd6f4;
+      --text-sub: #a6adc8;
+      --text-muted: #6c7086;
+      --blue: #89b4fa;
+      --green: #a6e3a1;
+      --red: #f38ba8;
+      --yellow: #f9e2af;
+      --border: #45475a;
+      --page-shadow: rgba(0,0,0,0.3);
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+      --font-serif: Georgia, 'Times New Roman', serif;
+    }
+
+    /* --- Body --- */
+    body {
+      background: var(--bg-base);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* --- Topbar --- */
+    .topbar {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      background: var(--bg-mantle);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 16px;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .topbar .logo {
+      margin-right: auto;
+      font-weight: 600;
+      font-size: 15px;
+    }
+    .topbar button {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-sub);
+      padding: 6px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .topbar button:hover {
+      background: var(--bg-overlay);
+      color: var(--text);
+      border-color: var(--border);
+    }
+
+    /* --- Main Split --- */
+    .main-split {
+      display: flex;
+      flex-direction: row;
+      flex: 1;
+      min-height: 0;
+    }
+
+    /* --- Panes --- */
+    .pane {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .pane-editor {
+      flex: 6;
+    }
+    .pane-preview {
+      flex: 4;
+      border-left: 1px solid var(--border);
+    }
+
+    /* --- CodeMirror --- */
+    .cm-editor {
+      height: 100%;
+      font-size: 13px;
+    }
+    .cm-editor.cm-focused {
+      outline: none;
+    }
+    .cm-editor .cm-gutters {
+      background: var(--bg-base);
+      border-right: 1px solid var(--border);
+    }
+    .cm-editor .cm-activeLineGutter {
+      background: var(--bg-overlay);
+    }
+    .cm-editor .cm-activeLine {
+      background: var(--bg-overlay);
+    }
+
+    /* --- Preview --- */
+    .preview-container {
+      flex: 1;
+      background: var(--bg-surface);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow: auto;
+      position: relative;
+    }
+    .preview-card {
+      width: min(210mm, calc(100% - 40px));
+      aspect-ratio: 210 / 297;
+      background: #fff;
+      box-shadow: 0 4px 24px var(--page-shadow);
+      border-radius: 2px;
+      position: relative;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .preview-card iframe {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: none;
+      overflow-y: auto;
+    }
+    .preview-card .error-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(30, 30, 46, 0.85);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      z-index: 10;
+    }
+    .preview-card .error-overlay.hidden {
+      display: none;
+    }
+    .preview-card .error-overlay .msg {
+      font-size: 14px;
+      color: var(--text-sub);
+    }
+
+    /* --- Bottombar --- */
+    .bottombar {
+      background: var(--bg-mantle);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    /* --- Error Summary --- */
+    .error-summary {
+      padding: 4px 16px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      min-height: 24px;
+    }
+    .error-summary.has-errors {
+      background: var(--red);
+      color: var(--bg-base);
+    }
+    .error-summary.no-errors {
+      color: var(--text-muted);
+    }
+
+    /* --- Toolbar --- */
+    .toolbar {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+    .toolbar select,
+    .toolbar input[type="checkbox"] {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .toolbar label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 13px;
+      color: var(--text-sub);
+    }
+    .toolbar .spacer {
+      flex: 1;
+    }
+    .btn-primary {
+      background: var(--blue);
+      color: var(--bg-base);
+      border: none;
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-sub);
+      padding: 6px 14px;
+      border-radius: 4px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-secondary:hover {
+      background: var(--bg-overlay);
+      color: var(--text);
+    }
+
+    /* --- File Input --- */
+    #file-input {
+      display: none;
+    }
+
+    /* --- Fetch Dialog --- */
+    .fetch-dialog {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .fetch-dialog.hidden {
+      display: none;
+    }
+    .fetch-dialog .dialog-box {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      min-width: 400px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .fetch-dialog .dialog-box h3 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+    .fetch-dialog .dialog-box input[type="url"] {
+      background: var(--bg-base);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 13px;
+      width: 100%;
+    }
+    .fetch-dialog .dialog-box .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    /* --- Loading --- */
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 14px;
+      height: 100vh;
+    }
+
+    /* --- Responsive --- */
+    @media (max-width: 768px) {
+      .main-split {
+        flex-direction: column;
+      }
+      .pane-editor,
+      .pane-preview {
+        flex: 1;
+      }
+      .pane-editor {
+        min-height: 40vh;
+      }
+      .pane-preview {
+        min-height: 50vh;
+      }
+      .preview-container {
+        padding: 20px 10px;
+      }
+      .preview-card {
+        width: calc(100% - 40px);
+        aspect-ratio: auto;
+        min-height: 50vh;
+      }
+      .preview-card iframe {
+        overflow-y: auto;
+      }
+      .fetch-dialog .dialog-box {
+        min-width: auto;
+        width: 90%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Loading -->
+  <div id="app-loading" class="loading">Loading...</div>
+
+  <!-- Top Bar -->
+  <header class="topbar">
+    <span class="logo">HTML Print Studio</span>
+    <button id="btn-fetch">Fetch URL</button>
+    <button id="btn-open">Open File</button>
+    <button id="btn-download">Download</button>
+    <button id="btn-dark">Dark</button>
+  </header>
+
+  <!-- Main Split -->
+  <div class="main-split app-section" style="display:none">
+    <!-- Editor Pane -->
+    <div class="pane pane-editor">
+      <div id="editor"></div>
+    </div>
+    <!-- Preview Pane -->
+    <div class="pane pane-preview">
+      <div class="preview-container">
+        <div class="preview-card">
+          <iframe id="preview-frame" sandbox="allow-modals allow-scripts"></iframe>
+          <div class="error-overlay hidden" id="error-overlay">
+            <span class="msg">Fix HTML errors before printing</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Bar -->
+  <div class="bottombar app-section" style="display:none">
+    <!-- Error Summary -->
+    <div class="error-summary no-errors" id="error-summary"><span>No errors</span></div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <select id="page-size">
+        <option value="A4">A4</option>
+        <option value="Letter">Letter</option>
+        <option value="Legal">Legal</option>
+      </select>
+      <select id="page-orientation">
+        <option value="portrait">Portrait</option>
+        <option value="landscape">Landscape</option>
+      </select>
+      <select id="page-margins">
+        <option value="2cm">Margins 2cm</option>
+        <option value="1cm">Margins 1cm</option>
+        <option value="0.5cm">Margins 0.5cm</option>
+        <option value="0">Margins None</option>
+      </select>
+      <label>
+        <input type="checkbox" id="bg-graphics" checked> Background
+      </label>
+      <div class="spacer"></div>
+      <button class="btn-primary" id="btn-print" disabled>Print</button>
+      <button class="btn-secondary" id="btn-clear">Clear</button>
+    </div>
+  </div>
+
+  <!-- Hidden File Input -->
+  <input type="file" id="file-input" accept=".html,.htm,.svg,.xhtml">
+
+  <!-- Fetch URL Dialog -->
+  <div class="fetch-dialog hidden" id="fetch-dialog">
+    <div class="dialog-box">
+      <h3>Fetch HTML from URL</h3>
+      <input type="url" id="fetch-url" placeholder="https://example.com/page.html" autocomplete="off">
+      <div class="actions">
+        <button class="btn-secondary" id="fetch-cancel">Cancel</button>
+        <button class="btn-primary" id="fetch-confirm">Fetch</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- App Script -->
+  <script type="module">
+    // --- Imports ---
+    import { EditorView, basicSetup } from "codemirror";
+    import { html } from "@codemirror/lang-html";
+    import { syntaxTree } from "@codemirror/language";
+    import { linter, lintGutter } from "@codemirror/lint";
+    import { Compartment } from "@codemirror/state";
+
+    // === TASK 2: CM6 Editor Setup ===
+
+    const DEFAULT_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Page</title>
+</head>
+<body>
+  <h1>Hello World</h1>
+  <p>Start editing or paste your HTML above.</p>
+</body>
+</html>`;
+
+    const editorEl = document.getElementById('editor');
+    const previewFrame = document.getElementById('preview-frame');
+    const errorOverlay = document.getElementById('error-overlay');
+    const errorSummary = document.getElementById('error-summary');
+    const printBtn = document.getElementById('btn-print');
+
+    const themeCompartment = new Compartment();
+
+    const darkTheme = EditorView.theme({
+      "&": {
+        backgroundColor: "#1e1e2e",
+        color: "#cdd6f4"
+      },
+      ".cm-content": {
+        caretColor: "#f5e0dc",
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+        fontSize: "13px",
+        lineHeight: "1.6"
+      },
+      ".cm-cursor": {
+        borderLeftColor: "#f5e0dc"
+      },
+      ".cm-selectionBackground, ::selection": {
+        backgroundColor: "#45475a"
+      },
+      "&.cm-focused .cm-selectionBackground": {
+        backgroundColor: "#45475a"
+      },
+      ".cm-matchingBracket": {
+        backgroundColor: "#585b70",
+        outline: "1px solid #6c7086"
+      }
+    }, { dark: true });
+
+    let currentErrors = [];
+
+    function getErrorNodes(state) {
+      const tree = syntaxTree(state);
+      const errors = [];
+      tree.cursor().iterate(node => {
+        if (node.type.isError) {
+          const from = node.from;
+          const line = state.doc.lineAt(from);
+          errors.push({
+            from,
+            to: node.to,
+            line: line.number,
+            message: `Line ${line.number}: syntax error`
+          });
+        }
+      });
+      return errors;
+    }
+
+    const htmlLinter = linter(view => {
+      const errors = getErrorNodes(view.state);
+      currentErrors = errors;
+      return errors.map(e => ({
+        from: e.from,
+        to: e.to,
+        message: e.message,
+        severity: "error"
+      }));
+    });
+
+    const editor = new EditorView({
+      doc: DEFAULT_HTML,
+      extensions: [
+        basicSetup,
+        html(),
+        lintGutter(),
+        htmlLinter,
+        themeCompartment.of(darkTheme),
+        EditorView.updateListener.of(update => {
+          if (update.docChanged) {
+            updatePreview();
+          }
+        })
+      ],
+      parent: editorEl
+    });
+
+    function getEditorContent() {
+      return editor.state.doc.toString();
+    }
+
+    function hasErrors() {
+      return currentErrors.length > 0;
+    }
+
+    // === TASK 4: Error Summary & Print Button State ===
+
+    function updateErrorUI() {
+      const summary = document.getElementById('error-summary');
+      if (currentErrors.length === 0) {
+        summary.className = 'error-summary no-errors';
+        summary.innerHTML = '<span>No errors</span>';
+        printBtn.disabled = false;
+      } else {
+        summary.className = 'error-summary has-errors';
+        const items = currentErrors.map(e =>
+          `<span>${e.message}</span>`
+        ).join('');
+        summary.innerHTML = `<strong>${currentErrors.length} error${currentErrors.length > 1 ? 's' : ''}:</strong> ${items}`;
+        printBtn.disabled = true;
+      }
+    }
+
+    const origUpdatePreview = updatePreview;
+    updatePreview = function() {
+      updateErrorUI();
+      origUpdatePreview();
+    };
+    setTimeout(() => { updatePreview(); }, 100);
+    // === TASK 3: Preview System ===
+
+    function detectContentType(html) {
+      const t = html.trim();
+      if (t.startsWith('<!DOCTYPE') || t.startsWith('<!doctype') ||
+          t.startsWith('<html') || t.startsWith('<HTML')) {
+        return 'full-page';
+      }
+      return 'snippet';
+    }
+
+    function buildPrintCSS(size, orientation, margins, bgGraphics) {
+      const bgRule = bgGraphics
+        ? '* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }'
+        : '';
+      return `
+        @page {
+          size: ${size} ${orientation};
+          margin: 0;
+        }
+        body {
+          margin: ${margins};
+          font: 12pt/1.6 Georgia, 'Times New Roman', serif;
+          color: #000;
+        }
+        table, pre, img, figure, blockquote { break-inside: avoid; }
+        h1, h2, h3, h4 { break-after: avoid; }
+        a { color: #000; text-decoration: underline; }
+        img { max-width: 100%; height: auto; }
+        pre {
+          white-space: pre-wrap; word-break: break-word;
+          background: #f5f5f5; padding: 8px; font-size: 10pt;
+        }
+        code { font-size: 10pt; }
+        ${bgRule}
+        @media print { .no-print { display: none !important; } }
+      `;
+    }
+
+    function getPrintSettings() {
+      return {
+        size: document.getElementById('page-size').value,
+        orientation: document.getElementById('page-orientation').value,
+        margins: document.getElementById('page-margins').value,
+        bgGraphics: document.getElementById('bg-graphics').checked
+      };
+    }
+
+    function updatePreview() {
+      const html = getEditorContent();
+
+      if (hasErrors()) {
+        errorOverlay.classList.remove('hidden');
+        return;
+      }
+      errorOverlay.classList.add('hidden');
+
+      if (!html.trim()) {
+        previewFrame.srcdoc = '<html><body></body></html>';
+        return;
+      }
+
+      const settings = getPrintSettings();
+      const printCss = buildPrintCSS(
+        settings.size, settings.orientation,
+        settings.margins, settings.bgGraphics
+      );
+
+      const safe = DOMPurify.sanitize(html, {
+        FORBID_TAGS: ['script', 'style', 'form', 'input', 'textarea',
+                      'select', 'button', 'object', 'embed', 'applet',
+                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
+                      'onblur', 'onsubmit', 'onscroll', 'style', 'action', 'method'],
+        ALLOW_DATA_ATTR: false,
+        ALLOW_ARIA_ATTR: true,
+        WHOLE_DOCUMENT: true
+      });
+
+      const type = detectContentType(html);
+
+      let doc;
+      if (type === 'full-page') {
+        doc = safe.replace('</head>', `<style>${printCss}</style></head>`);
+        if (!doc.includes('</head>')) {
+          doc = safe;
+        }
+      } else {
+        doc = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><style>${printCss}</style></head>
+<body>${safe}</body>
+</html>`;
+      }
+
+      previewFrame.srcdoc = doc;
+    }
+
+    document.getElementById('page-size').addEventListener('change', updatePreview);
+    document.getElementById('page-orientation').addEventListener('change', updatePreview);
+    document.getElementById('page-margins').addEventListener('change', updatePreview);
+    document.getElementById('bg-graphics').addEventListener('change', updatePreview);
+    // === TASK 5: Print & Clear ===
+
+    function buildPrintDoc() {
+      const html = getEditorContent();
+      const settings = getPrintSettings();
+      const printCss = buildPrintCSS(
+        settings.size, settings.orientation,
+        settings.margins, settings.bgGraphics
+      );
+      const safe = DOMPurify.sanitize(html, {
+        FORBID_TAGS: ['script', 'style', 'form', 'input', 'textarea',
+                      'select', 'button', 'object', 'embed', 'applet',
+                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
+                      'onblur', 'onsubmit', 'onscroll', 'style', 'action', 'method'],
+        ALLOW_DATA_ATTR: false,
+        ALLOW_ARIA_ATTR: true,
+        WHOLE_DOCUMENT: true
+      });
+      const type = detectContentType(html);
+      if (type === 'full-page') {
+        const doc = safe.replace('</head>', `<style>${printCss}</style></head>`);
+        if (doc.includes('</head>')) return doc;
+        return safe;
+      }
+      return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><style>${printCss}</style></head>
+<body>${safe}</body>
+</html>`;
+    }
+
+    printBtn.addEventListener('click', () => {
+      if (hasErrors()) return;
+      const doc = buildPrintDoc();
+      if (!doc) return;
+      const frame = document.createElement('iframe');
+      frame.style.cssText = 'position:absolute;top:-9999px;left:-9999px;border:none;width:210mm;height:297mm';
+      document.body.appendChild(frame);
+      frame.srcdoc = doc;
+      frame.onload = () => {
+        frame.contentWindow.focus();
+        frame.contentWindow.print();
+        setTimeout(() => document.body.removeChild(frame), 1000);
+      };
+    });
+
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      editor.dispatch({
+        changes: {
+          from: 0,
+          to: editor.state.doc.length,
+          insert: ''
+        }
+      });
+    });
+    // === TASK 6: File Operations ===
+
+    // Fetch URL
+    const fetchDialog = document.getElementById('fetch-dialog');
+    const fetchUrlInput = document.getElementById('fetch-url');
+    const fetchConfirm = document.getElementById('fetch-confirm');
+    const fetchCancel = document.getElementById('fetch-cancel');
+
+    document.getElementById('btn-fetch').addEventListener('click', () => {
+      fetchDialog.classList.remove('hidden');
+      fetchUrlInput.value = '';
+      fetchUrlInput.focus();
+    });
+
+    fetchCancel.addEventListener('click', () => {
+      fetchDialog.classList.add('hidden');
+    });
+
+    fetchUrlInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') fetchConfirm.click();
+      if (e.key === 'Escape') fetchCancel.click();
+    });
+
+    fetchConfirm.addEventListener('click', async () => {
+      const url = fetchUrlInput.value.trim();
+      if (!url) return;
+      fetchConfirm.disabled = true;
+      fetchConfirm.textContent = 'Loading...';
+      try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const text = await response.text();
+        editor.dispatch({
+          changes: { from: 0, to: editor.state.doc.length, insert: text }
+        });
+        fetchDialog.classList.add('hidden');
+      } catch (err) {
+        alert(`Failed to fetch URL:\n${err.message}`);
+      } finally {
+        fetchConfirm.disabled = false;
+        fetchConfirm.textContent = 'Fetch';
+      }
+    });
+
+    // Open File
+    const fileInput = document.getElementById('file-input');
+    document.getElementById('btn-open').addEventListener('click', () => {
+      fileInput.click();
+    });
+    fileInput.addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        editor.dispatch({
+          changes: { from: 0, to: editor.state.doc.length, insert: reader.result }
+        });
+      };
+      reader.onerror = () => alert('Failed to read file');
+      reader.readAsText(file);
+      fileInput.value = '';
+    });
+
+    // Drag-and-drop
+    const editorArea = document.getElementById('editor');
+    editorArea.addEventListener('dragover', e => { e.preventDefault(); });
+    editorArea.addEventListener('drop', e => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (!file || !file.name.match(/\.(html?|svg|xhtml)$/i)) {
+        alert('Please drop an HTML file');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        editor.dispatch({
+          changes: { from: 0, to: editor.state.doc.length, insert: reader.result }
+        });
+      };
+      reader.readAsText(file);
+    });
+
+    // Download
+    document.getElementById('btn-download').addEventListener('click', () => {
+      const content = getEditorContent();
+      const titleMatch = content.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const filename = titleMatch ? `${titleMatch[1].trim()}.html` : 'output.html';
+      const blob = new Blob([content], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+    // === TASK 7: Polish ===
+
+    // Remove loading state
+    document.getElementById('app-loading').remove();
+    for (const el of document.querySelectorAll('.app-section')) {
+      el.style.display = '';
+    }
+
+    // Dark mode toggle
+    let isDark = true;
+    document.getElementById('btn-dark').addEventListener('click', () => {
+      isDark = !isDark;
+      document.getElementById('btn-dark').textContent = isDark ? 'Dark' : 'Light';
+      const newTheme = EditorView.theme({
+        "&": {
+          backgroundColor: isDark ? "#1e1e2e" : "#fafafa",
+          color: isDark ? "#cdd6f4" : "#1e1e2e"
+        },
+        ".cm-content": {
+          caretColor: isDark ? "#f5e0dc" : "#1e1e2e",
+          fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+          fontSize: "13px",
+          lineHeight: "1.6"
+        },
+        ".cm-cursor": { borderLeftColor: isDark ? "#f5e0dc" : "#1e1e2e" },
+        ".cm-selectionBackground, ::selection": {
+          backgroundColor: isDark ? "#45475a" : "#d0d0d0"
+        },
+        ".cm-gutters": {
+          backgroundColor: isDark ? "#1e1e2e" : "#f0f0f0",
+          color: isDark ? "#6c7086" : "#999",
+          borderRight: `1px solid ${isDark ? "#45475a" : "#ddd"}`
+        },
+        ".cm-activeLine": { backgroundColor: isDark ? "#24243a" : "#f5f5f5" },
+        ".cm-activeLineGutter": { backgroundColor: isDark ? "#24243a" : "#eee" }
+      }, { dark: isDark });
+      editor.dispatch({
+        effects: themeCompartment.reconfigure(newTheme)
+      });
+      document.body.style.background = isDark ? 'var(--bg-base)' : '#f5f5f5';
+    });
+  </script>
+</body>
+</html>
