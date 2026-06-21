@@ -115,10 +115,17 @@
     }
     .pane-editor {
       flex: 6;
+      overflow: hidden;
     }
     .pane-preview {
       flex: 4;
       border-left: 1px solid var(--border);
+    }
+
+    #editor {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
     }
 
     /* --- CodeMirror --- */
