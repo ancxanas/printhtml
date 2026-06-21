@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HTML Print Studio</title>
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline' https://esm.sh https://cdn.jsdelivr.net; style-src 'unsafe-inline'; img-src * data:; connect-src 'self' https:; font-src 'self' data:; form-action 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline' https://esm.sh https://cdn.jsdelivr.net; style-src 'unsafe-inline'; img-src * data:; connect-src 'self' https:; font-src 'self' data:; form-action 'none'; base-uri 'none'; object-src 'none'">
   <script type="importmap">
     {
       "imports": {
@@ -475,7 +475,6 @@
     const editorEl = document.getElementById('editor');
     const previewFrame = document.getElementById('preview-frame');
     const errorOverlay = document.getElementById('error-overlay');
-    const errorSummary = document.getElementById('error-summary');
     const printBtn = document.getElementById('btn-print');
 
     const themeCompartment = new Compartment();
@@ -495,11 +494,18 @@
         borderLeftColor: "#f5e0dc"
       },
       ".cm-selectionBackground, ::selection": {
-        backgroundColor: "#45475a"
+        backgroundColor: "#89b4fa"
       },
       "&.cm-focused .cm-selectionBackground": {
-        backgroundColor: "#45475a"
+        backgroundColor: "#89b4fa"
       },
+      ".cm-gutters": {
+        backgroundColor: "#1e1e2e",
+        color: "#6c7086",
+        borderRight: "1px solid #45475a"
+      },
+      ".cm-activeLine": { backgroundColor: "#24243a" },
+      ".cm-activeLineGutter": { backgroundColor: "#24243a" },
       ".cm-matchingBracket": {
         backgroundColor: "#585b70",
         outline: "1px solid #6c7086"
@@ -587,7 +593,8 @@
     function sanitizeHtml(html, stripStyles) {
       const forbid = ['script', 'form', 'input', 'textarea',
                       'select', 'button', 'object', 'embed', 'applet',
-                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript'];
+                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript',
+                      'template'];
       if (stripStyles !== false) forbid.push('style');
       return DOMPurify.sanitize(html, {
         FORBID_TAGS: forbid,
@@ -609,15 +616,15 @@
 
     function buildDoc(html, printCss, stripStyles) {
       const safe = sanitizeHtml(html, stripStyles);
-      const type = detectContentType(html);
+      const type = detectContentType(safe);
       if (type === 'full-page') {
         const parser = new DOMParser();
         const dom = parser.parseFromString(safe, 'text/html');
         if (dom.querySelector('parsererror')) {
-          const pe = new DOMParser().parseFromString(safe, 'text/html');
+          const bodyContent = safe.replace(/^[\s\S]*?<body[^>]*>/i, '').replace(/<\/body>[\s\S]*$/i, '');
           return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><style>${printCss}</style></head>
-<body>${pe.body.innerHTML}</body>
+<body>${bodyContent}</body>
 </html>`;
         }
         let head = dom.querySelector('head');
@@ -661,7 +668,7 @@
 
     function buildPrintCSS(size, orientation, margins, bgGraphics) {
       const bgRule = bgGraphics
-        ? '* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }'
+        ? '* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }'
         : '';
       return `
         @page {
@@ -689,7 +696,7 @@
 
     function buildPreviewCSS(size, orientation, margins, bgGraphics) {
       const bgRule = bgGraphics
-        ? '* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }'
+        ? '* { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }'
         : '';
       return `
         @page {
@@ -709,10 +716,15 @@
 
     function updateErrorUI() {
       const summary = document.getElementById('error-summary');
-      if (currentErrors.length === 0) {
+      const isEmpty = !getEditorContent().trim();
+      if (currentErrors.length === 0 && !isEmpty) {
         summary.className = 'error-summary no-errors';
         summary.innerHTML = '<span>No errors</span>';
         printBtn.disabled = false;
+      } else if (isEmpty) {
+        summary.className = 'error-summary has-errors';
+        summary.innerHTML = '<strong>Empty:</strong> <span>Add HTML content to print</span>';
+        printBtn.disabled = true;
       } else {
         summary.className = 'error-summary has-errors';
         const items = currentErrors.map(e =>
@@ -763,33 +775,49 @@
     function buildPrintDoc() {
       const html = getEditorContent();
       const settings = getPrintSettings();
-      const css = buildPreviewCSS(
+      const css = buildPrintCSS(
         settings.size, settings.orientation,
         settings.margins, settings.bgGraphics
       );
-      return buildDoc(html, css, false);
+      return buildDoc(html, css, true);
     }
 
     printBtn.addEventListener('click', () => {
       if (hasErrors()) return;
+      printBtn.disabled = true;
+      printBtn.textContent = 'Preparing...';
       const settings = getPrintSettings();
       const dims = PAGE_SIZES[settings.size] || PAGE_SIZES.A4;
       const [pw, ph] = settings.orientation === 'portrait' ? dims : [...dims].reverse();
       const doc = buildPrintDoc();
-      if (!doc) return;
       const frame = document.createElement('iframe');
       frame.style.cssText = `position:absolute;top:-9999px;left:-9999px;border:none;width:${pw}mm;height:${ph}mm`;
       document.body.appendChild(frame);
       frame.srcdoc = doc;
       frame.onload = () => {
-        frame.contentWindow.focus();
-        frame.contentWindow.print();
-        frame.contentWindow.onafterprint = () => {
+        const win = frame.contentWindow;
+        const doc = win.document;
+        win.onafterprint = () => {
           if (frame.parentNode) document.body.removeChild(frame);
+          printBtn.disabled = false;
+          printBtn.textContent = 'Print';
         };
+        Promise.all([
+          doc.fonts.ready,
+          ...[...doc.querySelectorAll('img')].map(img =>
+            img.complete ? Promise.resolve()
+              : new Promise(r => { img.onload = r; img.onerror = r; })
+          )
+        ]).then(() => {
+          win.focus();
+          win.print();
+        }).catch(() => {
+          win.focus();
+          win.print();
+        });
         setTimeout(() => {
           if (frame.parentNode) document.body.removeChild(frame);
-        }, 5000);
+        }, 10000);
       };
     });
 
@@ -925,7 +953,7 @@
         },
         ".cm-cursor": { borderLeftColor: isDark ? "#f5e0dc" : "#1e1e2e" },
         ".cm-selectionBackground, ::selection": {
-          backgroundColor: isDark ? "#45475a" : "#d0d0d0"
+          backgroundColor: isDark ? "#89b4fa" : "#89b4fa88"
         },
         ".cm-gutters": {
           backgroundColor: isDark ? "#1e1e2e" : "#f0f0f0",
@@ -935,7 +963,7 @@
         ".cm-activeLine": { backgroundColor: isDark ? "#24243a" : "#f5f5f5" },
         ".cm-activeLineGutter": { backgroundColor: isDark ? "#24243a" : "#eee" },
         "&.cm-focused .cm-selectionBackground": {
-          backgroundColor: isDark ? "#45475a" : "#d0d0d0"
+          backgroundColor: isDark ? "#89b4fa" : "#89b4fa88"
         },
         ".cm-matchingBracket": {
           backgroundColor: isDark ? "#585b70" : "#e0e0e0",
