@@ -763,11 +763,11 @@
     function buildPrintDoc() {
       const html = getEditorContent();
       const settings = getPrintSettings();
-      const printCss = buildPrintCSS(
+      const css = buildPreviewCSS(
         settings.size, settings.orientation,
         settings.margins, settings.bgGraphics
       );
-      return buildDoc(html, printCss, true);
+      return buildDoc(html, css, false);
     }
 
     printBtn.addEventListener('click', () => {
