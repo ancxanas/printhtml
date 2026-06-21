@@ -584,11 +584,13 @@
       Legal: [215.9, 355.6]
     };
 
-    function sanitizeHtml(html) {
-      return DOMPurify.sanitize(html, {
-        FORBID_TAGS: ['script', 'style', 'form', 'input', 'textarea',
+    function sanitizeHtml(html, stripStyles) {
+      const forbid = ['script', 'form', 'input', 'textarea',
                       'select', 'button', 'object', 'embed', 'applet',
-                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript'],
+                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript'];
+      if (stripStyles !== false) forbid.push('style');
+      return DOMPurify.sanitize(html, {
+        FORBID_TAGS: forbid,
         FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
                       'onblur', 'onsubmit', 'onscroll', 'action', 'method'],
         ALLOW_DATA_ATTR: false,
@@ -605,8 +607,8 @@
       return 'snippet';
     }
 
-    function buildDoc(html, printCss) {
-      const safe = sanitizeHtml(html);
+    function buildDoc(html, printCss, stripStyles) {
+      const safe = sanitizeHtml(html, stripStyles);
       const type = detectContentType(html);
       if (type === 'full-page') {
         const parser = new DOMParser();
@@ -685,6 +687,24 @@
       `;
     }
 
+    function buildPreviewCSS(size, orientation, margins, bgGraphics) {
+      const bgRule = bgGraphics
+        ? '* { -webkit-print-color-adjust: exact; print-color-adjust: exact; }'
+        : '';
+      return `
+        @page {
+          size: ${size} ${orientation};
+          margin: 0;
+        }
+        body { margin: ${margins}; }
+        table, pre, img, figure, blockquote { break-inside: avoid; }
+        h1, h2, h3, h4 { break-after: avoid; }
+        img { max-width: 100%; height: auto; }
+        ${bgRule}
+        @media print { .no-print { display: none !important; } }
+      `;
+    }
+
     // === TASK 3: Preview System ===
 
     function updateErrorUI() {
@@ -719,12 +739,12 @@
       }
 
       const settings = getPrintSettings();
-      const printCss = buildPrintCSS(
+      const previewCss = buildPreviewCSS(
         settings.size, settings.orientation,
         settings.margins, settings.bgGraphics
       );
 
-      const doc = buildDoc(html, printCss);
+      const doc = buildDoc(html, previewCss, false);
       previewFrame.srcdoc = doc;
     }
 
@@ -747,7 +767,7 @@
         settings.size, settings.orientation,
         settings.margins, settings.bgGraphics
       );
-      return buildDoc(html, printCss);
+      return buildDoc(html, printCss, true);
     }
 
     printBtn.addEventListener('click', () => {
