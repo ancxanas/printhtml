@@ -44,6 +44,17 @@
       --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
       --font-serif: Georgia, 'Times New Roman', serif;
     }
+    [data-theme="light"] {
+      --bg-base: #fafafa;
+      --bg-surface: #ffffff;
+      --bg-mantle: #f0f0f0;
+      --bg-overlay: #e8e8e8;
+      --text: #1e1e2e;
+      --text-sub: #4a4a5a;
+      --text-muted: #888;
+      --border: #d0d0d0;
+      --page-shadow: rgba(0,0,0,0.1);
+    }
 
     /* --- Body --- */
     body {
@@ -508,9 +519,14 @@
       return errors;
     }
 
+    let firstLintDone = false;
     const htmlLinter = linter(view => {
       const errors = getErrorNodes(view.state);
       currentErrors = errors;
+      if (!firstLintDone) {
+        firstLintDone = true;
+        updatePreview();
+      }
       return errors.map(e => ({
         from: e.from,
         to: e.to,
@@ -518,6 +534,15 @@
         severity: "error"
       }));
     });
+
+    let previewTimer = null;
+    function schedulePreview() {
+      if (previewTimer) cancelAnimationFrame(previewTimer);
+      previewTimer = requestAnimationFrame(() => {
+        previewTimer = null;
+        updatePreview();
+      });
+    }
 
     const editor = new EditorView({
       doc: DEFAULT_HTML,
@@ -529,7 +554,7 @@
         themeCompartment.of(darkTheme),
         EditorView.updateListener.of(update => {
           if (update.docChanged) {
-            updatePreview();
+            schedulePreview();
           }
         })
       ],
@@ -544,39 +569,77 @@
       return currentErrors.length > 0;
     }
 
-    // === TASK 4: Error Summary & Print Button State ===
+    // === Shared helpers ===
 
-    function updateErrorUI() {
-      const summary = document.getElementById('error-summary');
-      if (currentErrors.length === 0) {
-        summary.className = 'error-summary no-errors';
-        summary.innerHTML = '<span>No errors</span>';
-        printBtn.disabled = false;
-      } else {
-        summary.className = 'error-summary has-errors';
-        const items = currentErrors.map(e =>
-          `<span>${e.message}</span>`
-        ).join('');
-        summary.innerHTML = `<strong>${currentErrors.length} error${currentErrors.length > 1 ? 's' : ''}:</strong> ${items}`;
-        printBtn.disabled = true;
-      }
+    const PAGE_SIZES = {
+      A4: [210, 297],
+      Letter: [215.9, 279.4],
+      Legal: [215.9, 355.6]
+    };
+
+    function sanitizeHtml(html) {
+      return DOMPurify.sanitize(html, {
+        FORBID_TAGS: ['script', 'style', 'form', 'input', 'textarea',
+                      'select', 'button', 'object', 'embed', 'applet',
+                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
+                      'onblur', 'onsubmit', 'onscroll', 'action', 'method'],
+        ALLOW_DATA_ATTR: false,
+        ALLOW_ARIA_ATTR: true,
+        WHOLE_DOCUMENT: true
+      });
     }
 
-    const origUpdatePreview = updatePreview;
-    updatePreview = function() {
-      updateErrorUI();
-      origUpdatePreview();
-    };
-    setTimeout(() => { updatePreview(); }, 100);
-    // === TASK 3: Preview System ===
-
     function detectContentType(html) {
-      const t = html.trim();
-      if (t.startsWith('<!DOCTYPE') || t.startsWith('<!doctype') ||
-          t.startsWith('<html') || t.startsWith('<HTML')) {
+      const t = html.trim().toLowerCase();
+      if (t.startsWith('<!doctype') || t.startsWith('<html')) {
         return 'full-page';
       }
       return 'snippet';
+    }
+
+    function buildDoc(html, printCss) {
+      const safe = sanitizeHtml(html);
+      const type = detectContentType(html);
+      if (type === 'full-page') {
+        const parser = new DOMParser();
+        const dom = parser.parseFromString(safe, 'text/html');
+        let head = dom.querySelector('head');
+        if (!head) {
+          head = dom.createElement('head');
+          dom.documentElement.insertBefore(head, dom.body);
+        }
+        const style = dom.createElement('style');
+        style.textContent = printCss;
+        head.appendChild(style);
+        const docType = dom.doctype
+          ? `<!DOCTYPE ${dom.doctype.name}>`
+          : '<!DOCTYPE html>';
+        return docType + dom.documentElement.outerHTML;
+      }
+      return `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><style>${printCss}</style></head>
+<body>${safe}</body>
+</html>`;
+    }
+
+    function updateCardSize() {
+      const settings = getPrintSettings();
+      const dims = PAGE_SIZES[settings.size] || PAGE_SIZES.A4;
+      const card = document.querySelector('.preview-card');
+      if (!card) return;
+      const [w, h] = settings.orientation === 'portrait' ? dims : [...dims].reverse();
+      card.style.aspectRatio = `${w} / ${h}`;
+    }
+
+    function getPrintSettings() {
+      return {
+        size: document.getElementById('page-size').value,
+        orientation: document.getElementById('page-orientation').value,
+        margins: document.getElementById('page-margins').value,
+        bgGraphics: document.getElementById('bg-graphics').checked
+      };
     }
 
     function buildPrintCSS(size, orientation, margins, bgGraphics) {
@@ -607,17 +670,27 @@
       `;
     }
 
-    function getPrintSettings() {
-      return {
-        size: document.getElementById('page-size').value,
-        orientation: document.getElementById('page-orientation').value,
-        margins: document.getElementById('page-margins').value,
-        bgGraphics: document.getElementById('bg-graphics').checked
-      };
+    // === TASK 3: Preview System ===
+
+    function updateErrorUI() {
+      const summary = document.getElementById('error-summary');
+      if (currentErrors.length === 0) {
+        summary.className = 'error-summary no-errors';
+        summary.innerHTML = '<span>No errors</span>';
+        printBtn.disabled = false;
+      } else {
+        summary.className = 'error-summary has-errors';
+        const items = currentErrors.map(e =>
+          `<span>${e.message}</span>`
+        ).join('');
+        summary.innerHTML = `<strong>${currentErrors.length} error${currentErrors.length > 1 ? 's' : ''}:</strong> ${items}`;
+        printBtn.disabled = true;
+      }
     }
 
     function updatePreview() {
       const html = getEditorContent();
+      updateErrorUI();
 
       if (hasErrors()) {
         errorOverlay.classList.remove('hidden');
@@ -636,38 +709,18 @@
         settings.margins, settings.bgGraphics
       );
 
-      const safe = DOMPurify.sanitize(html, {
-        FORBID_TAGS: ['script', 'style', 'form', 'input', 'textarea',
-                      'select', 'button', 'object', 'embed', 'applet',
-                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript'],
-        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
-                      'onblur', 'onsubmit', 'onscroll', 'style', 'action', 'method'],
-        ALLOW_DATA_ATTR: false,
-        ALLOW_ARIA_ATTR: true,
-        WHOLE_DOCUMENT: true
-      });
-
-      const type = detectContentType(html);
-
-      let doc;
-      if (type === 'full-page') {
-        doc = safe.replace('</head>', `<style>${printCss}</style></head>`);
-        if (!doc.includes('</head>')) {
-          doc = safe;
-        }
-      } else {
-        doc = `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><style>${printCss}</style></head>
-<body>${safe}</body>
-</html>`;
-      }
-
+      const doc = buildDoc(html, printCss);
       previewFrame.srcdoc = doc;
     }
 
-    document.getElementById('page-size').addEventListener('change', updatePreview);
-    document.getElementById('page-orientation').addEventListener('change', updatePreview);
+    document.getElementById('page-size').addEventListener('change', () => {
+      updateCardSize();
+      updatePreview();
+    });
+    document.getElementById('page-orientation').addEventListener('change', () => {
+      updateCardSize();
+      updatePreview();
+    });
     document.getElementById('page-margins').addEventListener('change', updatePreview);
     document.getElementById('bg-graphics').addEventListener('change', updatePreview);
     // === TASK 5: Print & Clear ===
@@ -679,35 +732,18 @@
         settings.size, settings.orientation,
         settings.margins, settings.bgGraphics
       );
-      const safe = DOMPurify.sanitize(html, {
-        FORBID_TAGS: ['script', 'style', 'form', 'input', 'textarea',
-                      'select', 'button', 'object', 'embed', 'applet',
-                      'base', 'meta', 'link', 'frame', 'frameset', 'noscript'],
-        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus',
-                      'onblur', 'onsubmit', 'onscroll', 'style', 'action', 'method'],
-        ALLOW_DATA_ATTR: false,
-        ALLOW_ARIA_ATTR: true,
-        WHOLE_DOCUMENT: true
-      });
-      const type = detectContentType(html);
-      if (type === 'full-page') {
-        const doc = safe.replace('</head>', `<style>${printCss}</style></head>`);
-        if (doc.includes('</head>')) return doc;
-        return safe;
-      }
-      return `<!DOCTYPE html>
-<html lang="en">
-<head><meta charset="UTF-8"><style>${printCss}</style></head>
-<body>${safe}</body>
-</html>`;
+      return buildDoc(html, printCss);
     }
 
     printBtn.addEventListener('click', () => {
       if (hasErrors()) return;
+      const settings = getPrintSettings();
+      const dims = PAGE_SIZES[settings.size] || PAGE_SIZES.A4;
+      const [pw, ph] = settings.orientation === 'portrait' ? dims : [...dims].reverse();
       const doc = buildPrintDoc();
       if (!doc) return;
       const frame = document.createElement('iframe');
-      frame.style.cssText = 'position:absolute;top:-9999px;left:-9999px;border:none;width:210mm;height:297mm';
+      frame.style.cssText = `position:absolute;top:-9999px;left:-9999px;border:none;width:${pw}mm;height:${ph}mm`;
       document.body.appendChild(frame);
       frame.srcdoc = doc;
       frame.onload = () => {
@@ -828,12 +864,14 @@
     for (const el of document.querySelectorAll('.app-section')) {
       el.style.display = '';
     }
+    updateCardSize();
 
     // Dark mode toggle
     let isDark = true;
     document.getElementById('btn-dark').addEventListener('click', () => {
       isDark = !isDark;
       document.getElementById('btn-dark').textContent = isDark ? 'Dark' : 'Light';
+      document.body.dataset.theme = isDark ? '' : 'light';
       const newTheme = EditorView.theme({
         "&": {
           backgroundColor: isDark ? "#1e1e2e" : "#fafafa",
@@ -860,7 +898,6 @@
       editor.dispatch({
         effects: themeCompartment.reconfigure(newTheme)
       });
-      document.body.style.background = isDark ? 'var(--bg-base)' : '#f5f5f5';
     });
   </script>
 </body>
