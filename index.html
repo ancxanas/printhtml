@@ -282,7 +282,7 @@
     .fetch-dialog {
       position: fixed;
       inset: 0;
-      background: rgba(0, 0, 0, 0.5);
+      background: color-mix(in srgb, var(--bg-base) 50%, transparent);
       display: flex;
       align-items: center;
       justify-content: center;
@@ -605,9 +605,10 @@
         const parser = new DOMParser();
         const dom = parser.parseFromString(safe, 'text/html');
         if (dom.querySelector('parsererror')) {
+          const pe = new DOMParser().parseFromString(safe, 'text/html');
           return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"><style>${printCss}</style></head>
-<body>${safe}</body>
+<body>${pe.body.innerHTML}</body>
 </html>`;
         }
         let head = dom.querySelector('head');
@@ -623,10 +624,11 @@
           : '<!DOCTYPE html>';
         return docType + dom.documentElement.outerHTML;
       }
+      const sd = new DOMParser().parseFromString(safe, 'text/html');
       return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><style>${printCss}</style></head>
-<body>${safe}</body>
+<body>${sd.body.innerHTML}</body>
 </html>`;
     }
 
@@ -904,7 +906,14 @@
           borderRight: `1px solid ${isDark ? "#45475a" : "#ddd"}`
         },
         ".cm-activeLine": { backgroundColor: isDark ? "#24243a" : "#f5f5f5" },
-        ".cm-activeLineGutter": { backgroundColor: isDark ? "#24243a" : "#eee" }
+        ".cm-activeLineGutter": { backgroundColor: isDark ? "#24243a" : "#eee" },
+        "&.cm-focused .cm-selectionBackground": {
+          backgroundColor: isDark ? "#45475a" : "#d0d0d0"
+        },
+        ".cm-matchingBracket": {
+          backgroundColor: isDark ? "#585b70" : "#e0e0e0",
+          outline: `1px solid ${isDark ? "#6c7086" : "#bbb"}`
+        }
       }, { dark: isDark });
       editor.dispatch({
         effects: themeCompartment.reconfigure(newTheme)
